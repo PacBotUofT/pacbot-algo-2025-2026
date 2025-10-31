@@ -47,6 +47,29 @@ class PacbotAgent:
             if not self.tmp_state.wallAt(newRow, newCol):
                 legal.append(dirName)
         return legal
+    
+    def findSafePathToPellet(self, startRow, startCol):
+        visited = set()
+        queue = [(startRow, startCol, [])]
+
+        while queue:
+            currentRow, currentCol, path = queue.pop(0)
+
+            if(currentRow, currentCol) in visited:
+                continue
+            visited.add((currentRow, currentCol))
+
+            if self.tmp_state.PelletAt(currentRow, currentCol):
+                return path
+            
+            for dirName, dirVector in DIRECTION_VECTORS.items():
+                newRow = currentRow + dirVector[0]
+                newCol = currentCol + dirVector[1]
+
+                if not self.tmp_state.wallAt(newRow, newCol) and (newRow, newCol) not in visited and self.dangerCost(newRow, newCol) < 50:
+                    queue.append((newRow, newCol, path + [dirName]))
+
+        return None
 
     def act(self):
         if self.state.gameMode == GameModes.PAUSED:
@@ -80,11 +103,44 @@ class PacbotAgent:
                 self.lastMove = bestDir
                 return
             elif ghostDistance <= 6:
-                # TODO: weigh ghost vs pellet points
-                pass
+                # check distance between ghost and nearest pellet
+                minPelletDistance = float('inf')
+                for pellet in self.tmp_state.pellets:
+                    pelletDistance = self.manhattanDistance(pacManRow, pacManCol, pellet.row, pellet.col)
+                    if pelletDistance < minPelletDistance:
+                        minPelletDistance = pelletDistance  
+                
+                if ghostDistance < minPelletDistance:
+                    vectorToGhost = (closestGhost.location.row - pacManRow, closestGhost.location.col - pacManCol)
+                    bestDir = None
+                    bestDot = float('-inf')
+
+                    for dirName, dirVector in DIRECTION_VECTORS.items():
+                        if dirName in legalMoves:
+                            dot = dirVector[0] * vectorToGhost[0] + dirVector[1] * vectorToGhost[1]
+                            if dot > bestDot:
+                                bestDot = dot
+                                bestDir = dirName
+
+                    self.state.queueAction(numTicks=4, pacmanDir=bestDir)
+                    self.lastMove = bestDir
+                    return
+                else:
+                    # seek pellets, closer to the pellet than the ghost
+                    pathToPellet = self.findSafePathToPellet(pacManRow, pacManCol)
+                    if pathToPellet and len(pathToPellet) > 0:
+                        nextMove = pathToPellet[0]
+                        self.state.queueAction(numTicks=4, pacmanDir=nextMove)
+                        self.lastMove = nextMove
+                        return 
             else:
-                # TODO: find best path for candy
-                pass
+                # seek pellets
+                pathToPellet = self.findSafePathToPellet(pacManRow, pacManCol)
+                if pathToPellet and len(pathToPellet) > 0:
+                    nextMove = pathToPellet[0]
+                    self.state.queueAction(numTicks=4, pacmanDir=nextMove)
+                    self.lastMove = nextMove
+                    return
 
         # Ghost is NOT frightened — play defensively
         dangerCosts = {}
