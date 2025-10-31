@@ -1,4 +1,5 @@
 from gameState import *
+from collections import deque # using queue to keep track of nodes to visit next
 
 class PacbotAgent:
 
@@ -6,8 +7,9 @@ class PacbotAgent:
         self.state: GameState = state
         self.tmp_state: GameState = state
 
-    def safetyCost(self) -> int:
-        pass
+    # Safety cost currently not implemented
+    # def safetyCost(self) -> int:
+    #     pass
 
     def act(self):
 
