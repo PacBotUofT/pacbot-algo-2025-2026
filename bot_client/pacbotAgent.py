@@ -43,15 +43,13 @@ class PacbotAgent:
                 self.nearest_pellet = (row, col)
                 return route
 
-
             # From gamestate.py, enum class Directions
-            # Check all four directions around pacman
+            # Check all four directions around pacman, add them to be explored by queue
             for direction in [Directions.UP, Directions.DOWN, Directions.LEFT, Directions.RIGHT]:
                 
                 # get coordinates
                 explored_row = row + D_ROW[direction]
                 explored_col = col + D_COL[direction]
-
 
                 # If not a wall and not visited
                 if not self.state.wallAt(explored_row, explored_col) and (explored_row, explored_col) not in visited:
@@ -70,12 +68,42 @@ class PacbotAgent:
 
         # Deepcopy the game state
         decompressGameState(self.tmp_state, compressGameState(self.state))
+        # Not sure what this does
 
-        # TODO: Do some calculations...
+        # Check if pellets are all collected
+        if self.state.numPellets() == 0:
+            print("Finished collecting pellets, exiting!")
+            return
 
-        # TODO: Send a message to the server
-        # (you should rewrite this to send to your robot)
-        self.state.queueAction(
-            numTicks=4,
-            pacmanDir=Directions.RIGHT
-        )
+        # Follow path queue as long as there are coordinates to travel to
+        if len(self.pellet_path) > 0:
+            # Get the next direction from our planned path
+            next_direction = self.pellet_path.popleft()
+            
+            # Queue the action to move in that direction
+            self.state.queueAction(
+                numTicks=4,  # Number of ticks to wait before executing
+                pacmanDir=next_direction
+            )
+            return
+        
+        # Check if pacman is at the target pellet (pellet collected)
+        pacman_row = self.state.pacmanLoc.row
+        pacman_col = self.state.pacmanLoc.col
+        
+        if self.nearest_pellet == (pacman_row, pacman_col):
+            self.nearest_pellet = None
+        
+        # Plan a new path if we don't have a pellet path
+        if self.nearest_pellet is None:
+
+            # do BFS to find nearest pellet, store path
+            path = self.bfs_nearest_pellet()
+            
+            if path:
+                # Store the path as a queue of directions
+                self.pellet_path = deque(path)
+                
+                # Move pacman by popping queue
+                next_direction = self.pellet_path.popleft()
+                self.state.queueAction(numTicks=4, pacmanDir=next_direction)
