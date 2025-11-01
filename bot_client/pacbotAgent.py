@@ -8,8 +8,8 @@ class PacbotAgent:
         self.tmp_state: GameState = state
 
         # BFS variables
-        self.path = deque()     # Queue of directions to follow
-        self.targeted_pellet = None     # Current target pellet (row, col)
+        self.pellet_path = deque()     # Queue of directions to follow
+        self.nearest_pellet = None     # Current target pellet (row, col)
 
 
     # Safety cost currently not implemented
@@ -22,9 +22,44 @@ class PacbotAgent:
         Then return a path to pellet.
         """
 
+        # Get coordinates for pacman
+        pacman_row = self.state.pacmanLoc.row
+        pacman_col = self.state.pacmanLoc.col
+        
+        # Store visited coordinates in set, including current coordinates
+        visited = set()
+        visited.add((pacman_row, pacman_col))
+        
+        # Queue coordinates to explore
+        # Keep path to coordinates inside of queue (to avoid reconstructing path from scratch)
+        path = deque([(pacman_row, pacman_col, [])])
+
+        # While there are directions stored in queue
+        while path:
+            row, col, route = path.popleft()
+            
+            # If we're at a pellet, no need to explore
+            if self.state.pelletAt(row, col):
+                self.nearest_pellet = (row, col)
+                return route
 
 
-        # Should return a list of directions
+            # From gamestate.py, enum class Directions
+            # Check all four directions around pacman
+            for direction in [Directions.UP, Directions.DOWN, Directions.LEFT, Directions.RIGHT]:
+                
+                # get coordinates
+                explored_row = row + D_ROW[direction]
+                explored_col = col + D_COL[direction]
+
+
+                # If not a wall and not visited
+                if not self.state.wallAt(explored_row, explored_col) and (explored_row, explored_col) not in visited:
+                    # add to visited set and path queue 
+                    visited.add((explored_row, explored_col))
+                    path.append((explored_row, explored_col, route + [direction]))  # append direction to route list
+
+        # No more pellets
         return []
 
     def act(self):
