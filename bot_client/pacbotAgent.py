@@ -100,6 +100,7 @@ class PacbotAgent:
             # do BFS to find nearest pellet, store path
             path = self.bfs_nearest_pellet()
             
+            # move immediately instead of waiting for decisionModule.py loop to call function again
             if path:
                 # Store the path as a queue of directions
                 self.pellet_path = deque(path)
