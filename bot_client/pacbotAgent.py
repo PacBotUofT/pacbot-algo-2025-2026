@@ -39,6 +39,57 @@ class PacbotAgent:
     def manhattanDistance(self, row1, col1, row2, col2):
         return abs(row1 - row2) + abs(col1 - col2)
 
+    def degreeAt(self, row, col) -> int:
+        deg = 0
+        for dirVector in DIRECTION_VECTORS.values():
+            nr = row + dirVector[0]
+            nc = col + dirVector[1]
+            if not self.tmp_state.wallAt(nr, nc):
+                deg += 1
+        return deg
+
+    def corridorEntranceAndLen(self, row, col, max_len=100):
+        """
+        Walk from (row, col) outwards until reaching a junction (degree > 2)
+        or exceeding max_len. Returns a tuple (entrance_row, entrance_col, length)
+        where length is how many steps from the original cell to the entrance.
+        If the cell is not inside a corridor/dead-end (degree > 2), length will
+        be 0 and entrance will be the same cell.
+        """
+        # If the starting cell is a junction, it's not a dead-end/corridor
+        if self.degreeAt(row, col) > 2:
+            return (row, col, 0)
+
+        prev = None
+        cur = (row, col)
+        length = 0
+        steps = 0
+        while steps < max_len:
+            deg = self.degreeAt(cur[0], cur[1])
+            # If we found a junction or an isolated cell, stop
+            if deg > 2 or deg == 0:
+                return (cur[0], cur[1], length)
+
+            # Find the next neighbour that isn't the previous cell
+            next_cells = []
+            for v in DIRECTION_VECTORS.values():
+                nr = cur[0] + v[0]
+                nc = cur[1] + v[1]
+                if not self.tmp_state.wallAt(nr, nc) and (prev is None or (nr, nc) != prev):
+                    next_cells.append((nr, nc))
+
+            if not next_cells:
+                return (cur[0], cur[1], length)
+
+            # Continue down the corridor (there should usually be exactly one choice)
+            prev = cur
+            cur = next_cells[0]
+            length += 1
+            steps += 1
+
+        # Max length reached; return current spot
+        return (cur[0], cur[1], length)
+
     def legalDirections(self):
         legal = []
         for dirName, dirVector in DIRECTION_VECTORS.items():
@@ -49,19 +100,56 @@ class PacbotAgent:
         return legal
     
     def findSafePathToPellet(self, startRow, startCol):
+        from collections import deque
         visited = set()
-        queue = [(startRow, startCol, [])]
+        queue = deque([(startRow, startCol, [])])
+        bestPath = None
+        bestScore = float('inf')
 
         while queue:
-            currentRow, currentCol, path = queue.pop(0)
+            currentRow, currentCol, path = queue.popleft()
 
-            if(currentRow, currentCol) in visited:
+            if (currentRow, currentCol) in visited:
                 continue
             visited.add((currentRow, currentCol))
 
             if self.tmp_state.PelletAt(currentRow, currentCol):
-                return path
-            
+                distance = len(path)
+                danger = self.dangerCost(currentRow, currentCol)
+
+                # Dead-end / corridor detection: find entrance and corridor length
+                entranceRow, entranceCol, corridor_len = self.corridorEntranceAndLen(currentRow, currentCol)
+
+                # If pellet is in a dead-end (corridor_len > 0), check ghost proximity
+                dead_end_penalty = 0
+                if corridor_len > 0:
+                    # Distance for Pacman to entrance is distance - corridor_len
+                    pac_to_entrance = max(0, distance - corridor_len)
+
+                    # Find closest non-frightened ghost distance to the entrance
+                    nonFrightened = [g for g in self.tmp_state.ghosts if not g.isFrightened()]
+                    ghost_to_entrance = float('inf')
+                    for ghost in nonFrightened:
+                        gd = self.manhattanDistance(ghost.location.row, ghost.location.col, entranceRow, entranceCol)
+                        if gd < ghost_to_entrance:
+                            ghost_to_entrance = gd
+
+                    # If a ghost can reach the entrance faster (or nearly as fast) as Pacman,
+                    # heavily penalize this pellet to avoid getting trapped
+                    # Allow some leeway (e.g., 2 ticks) for Pacman to enter/leave
+                    if ghost_to_entrance - pac_to_entrance < 3:
+                        dead_end_penalty = 1000
+
+                # higher score means more dangerous and longer path and also probably a dead end penality
+                score = distance + danger * 10 + dead_end_penalty
+
+                if score < bestScore:
+                    bestScore = score
+                    bestPath = path
+                    # continue searching for an even safer pellet
+                    continue
+
+            # Expand neighbors in BFS order, but prune obviously dangerous tiles
             for dirName, dirVector in DIRECTION_VECTORS.items():
                 newRow = currentRow + dirVector[0]
                 newCol = currentCol + dirVector[1]
@@ -69,7 +157,7 @@ class PacbotAgent:
                 if not self.tmp_state.wallAt(newRow, newCol) and (newRow, newCol) not in visited and self.dangerCost(newRow, newCol) < 50:
                     queue.append((newRow, newCol, path + [dirName]))
 
-        return None
+        return bestPath
 
     def act(self):
         if self.state.gameMode == GameModes.PAUSED:
@@ -102,7 +190,7 @@ class PacbotAgent:
                 self.state.queueAction(numTicks=4, pacmanDir=bestDir)
                 self.lastMove = bestDir
                 return
-            elif ghostDistance <= 6:
+            elif ghostDistance <= 10:
                 # check distance between ghost and nearest pellet
                 minPelletDistance = float('inf')
                 for pellet in self.tmp_state.pellets:
